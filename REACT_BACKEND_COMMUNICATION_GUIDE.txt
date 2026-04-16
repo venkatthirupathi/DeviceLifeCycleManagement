@@ -1,0 +1,1437 @@
+
+================================================================================
+      HOW REACT COMMUNICATES WITH THE ASP.NET CORE BACKEND
+           DeviceCycle — Complete Step-by-Step Flow Guide
+================================================================================
+
+  Frontend  : React 18 + TypeScript (Vite, TanStack Query, React Router)
+  Backend   : ASP.NET Core 8 Web API
+  Protocol  : HTTP/HTTPS (REST API)
+  Data Fmt  : JSON (JavaScript Object Notation)
+  Auth      : JWT Bearer Token in HTTP Header
+  Port Map  : Frontend → http://localhost:8080
+              Backend  → https://localhost:7110
+
+================================================================================
+  TABLE OF CONTENTS
+================================================================================
+
+  1.  The Big Picture — What "Communication" Means Here
+  2.  The 7 Layers of a React → Backend Request
+  3.  What Is REST API? (How the Backend Exposes Data)
+  4.  What Is HTTP? (The Language They Speak)
+  5.  What Is JSON? (The Format They Exchange)
+  6.  What Is CORS? (Why We Need It)
+  7.  The api.ts Layer — The Communication Bridge
+  8.  TanStack Query — How React Manages API Calls
+  9.  Step-by-Step: GET Request Flow (Reading Data)
+  10. Step-by-Step: POST Request Flow (Creating Data)
+  11. Step-by-Step: PUT Request Flow (Updating Data)
+  12. Step-by-Step: DELETE Request Flow (Deleting Data)
+  13. How JWT Token Gets Attached to Every Request
+  14. How Errors Are Handled (Frontend + Backend)
+  15. Complete Visual Flow Diagrams
+  16. Real Code Trace — From Button Click to Screen Update
+  17. Network Tab — What You See in Browser DevTools
+  18. All API Endpoints & Their Communication Pattern
+  19. CORS Configuration Deep Dive
+  20. Summary Cheat Sheet
+
+================================================================================
+  1. THE BIG PICTURE — WHAT "COMMUNICATION" MEANS HERE
+================================================================================
+
+  React (frontend) and ASP.NET Core (backend) are TWO SEPARATE PROGRAMS
+  running on different ports on your computer. They do NOT share memory,
+  files, or code. The ONLY way they talk to each other is over HTTP.
+
+  Think of it like two offices in different buildings:
+  - React is the CLIENT (makes requests, shows results to user)
+  - ASP.NET Core is the SERVER (receives requests, talks to DB, sends data back)
+
+  THE COMMUNICATION CHAIN:
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │                                                                        │
+  │   User Action                                                          │
+  │       │                                                                │
+  │       ▼                                                                │
+  │   React Component (e.g., Devices.tsx)                                 │
+  │       │   calls a function from api.ts                                │
+  │       ▼                                                                │
+  │   TanStack Query (useQuery / useMutation hook)                        │
+  │       │   manages loading state, caching, retries                     │
+  │       ▼                                                                │
+  │   api.ts fetchApi() function                                           │
+  │       │   builds the HTTP request with headers + body                 │
+  │       ▼                                                                │
+  │   Browser's fetch() API                                               │
+  │       │   actually sends the HTTP packet over the network             │
+  │       ▼                                                                │
+  │   ════════════════ NETWORK BOUNDARY ════════════════                  │
+  │       │                                                                │
+  │       ▼                                                                │
+  │   ASP.NET Core Kestrel Server (listening on port 7110)                │
+  │       │   receives the HTTP request                                   │
+  │       ▼                                                                │
+  │   Middleware Pipeline (CORS → Auth → Authorization)                   │
+  │       │   validates headers, JWT token, role                          │
+  │       ▼                                                                │
+  │   Controller (e.g., DevicesController)                                │
+  │       │   runs business logic                                         │
+  │       ▼                                                                │
+  │   DbContext + Entity Framework Core                                   │
+  │       │   queries SQL Server                                          │
+  │       ▼                                                                │
+  │   SQL Server Database                                                  │
+  │       │   returns rows                                                │
+  │       ▼                                                                │
+  │   Controller serializes result to JSON                                 │
+  │       │   sends HTTP Response back                                    │
+  │       ▼                                                                │
+  │   ════════════════ NETWORK BOUNDARY ════════════════                  │
+  │       │                                                                │
+  │       ▼                                                                │
+  │   Browser receives JSON response                                       │
+  │       │                                                                │
+  │       ▼                                                                │
+  │   TanStack Query stores it in cache                                   │
+  │       │   triggers React re-render                                    │
+  │       ▼                                                                │
+  │   React Component updates UI with new data                            │
+  │       │                                                                │
+  │       ▼                                                                │
+  │   User sees the result on screen                                       │
+  │                                                                        │
+  └────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+  2. THE 7 LAYERS OF A REACT → BACKEND REQUEST
+================================================================================
+
+  Every single API call in this app goes through these 7 layers:
+
+  LAYER 1 — USER ACTION
+  ─────────────────────
+  The user does something: clicks a button, opens a page, submits a form.
+  Example: User navigates to /devices page.
+
+  LAYER 2 — REACT COMPONENT
+  ──────────────────────────
+  The component (Devices.tsx) runs. It uses useQuery() hook which triggers
+  an API call when the component mounts on screen.
+  Example: useQuery({ queryKey: ["devices"], queryFn: getDevices })
+
+  LAYER 3 — TANSTACK QUERY
+  ─────────────────────────
+  TanStack Query manages the API call lifecycle:
+    - Checks if data is already cached (fresh enough to reuse).
+    - If not cached → calls the queryFn (our api.ts function).
+    - Tracks loading state (isLoading = true while waiting).
+    - Tracks error state (isError = true if request fails).
+    - Stores result in an in-memory cache.
+
+  LAYER 4 — api.ts (fetchApi function)
+  ─────────────────────────────────────
+  The central HTTP helper function. It:
+    - Takes an endpoint string like "/Devices".
+    - Reads the JWT token from localStorage.
+    - Builds the full URL: "https://localhost:7110/api/Devices"
+    - Sets headers: Content-Type + Authorization: Bearer <token>
+    - Calls the browser's native fetch() function.
+    - Handles error responses (401 → redirect, other errors → throw).
+    - Parses the JSON response body.
+    - Returns the JavaScript object to TanStack Query.
+
+  LAYER 5 — BROWSER fetch() API
+  ───────────────────────────────
+  The browser's built-in HTTP client. It:
+    - Takes the URL, method, headers, body.
+    - Packages everything into an HTTP request packet.
+    - Sends it over TCP/IP to the server address.
+    - Waits for the response.
+    - Returns a Response object to fetchApi().
+
+  LAYER 6 — ASP.NET CORE BACKEND
+  ────────────────────────────────
+  The server receives the HTTP request. It:
+    - Runs through middleware pipeline (CORS, Auth, etc.).
+    - Routes to the correct controller method.
+    - Runs the C# code (query DB, business logic).
+    - Serializes the result to JSON.
+    - Sends back an HTTP response.
+
+  LAYER 7 — UI UPDATE
+  ────────────────────
+  TanStack Query receives the data from fetchApi(). React re-renders the
+  component with the new data. The user sees the updated screen.
+
+
+================================================================================
+  3. WHAT IS REST API? (HOW THE BACKEND EXPOSES DATA)
+================================================================================
+
+  REST (Representational State Transfer) is a convention for designing APIs.
+  In a REST API, everything is a "resource" (Device, Firmware, etc.) and
+  you interact with resources using standard HTTP methods (verbs).
+
+  OUR REST RESOURCES:
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  Resource   │ URL Pattern          │ Actions available               │
+  ├─────────────┼──────────────────────┼─────────────────────────────────┤
+  │  Devices    │ /api/devices         │ List, Get One, Create, Update,  │
+  │             │ /api/devices/{id}    │ Delete                          │
+  ├─────────────┼──────────────────────┼─────────────────────────────────┤
+  │  Firmware   │ /api/firmware        │ List, Get One, Create           │
+  │             │ /api/firmware/{id}   │                                 │
+  ├─────────────┼──────────────────────┼─────────────────────────────────┤
+  │  ChangeLogs │ /api/changelogs      │ List, List by Device            │
+  ├─────────────┼──────────────────────┼─────────────────────────────────┤
+  │  Auth       │ /api/auth/register   │ Register                        │
+  │             │ /api/auth/login      │ Login                           │
+  └──────────────────────────────────────────────────────────────────────┘
+
+  HTTP VERBS MAPPED TO ACTIONS:
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  GET     → Read / Retrieve data     (no body in request)            │
+  │  POST    → Create new data          (body contains new item JSON)   │
+  │  PUT     → Update existing data     (body contains updated JSON)    │
+  │  DELETE  → Remove data              (no body, ID in URL)            │
+  └──────────────────────────────────────────────────────────────────────┘
+
+  URL PATTERNS:
+    GET    /api/devices          → get ALL devices
+    GET    /api/devices/5        → get device with id = 5
+    POST   /api/devices          → create a NEW device
+    PUT    /api/devices/5        → update device with id = 5
+    DELETE /api/devices/5        → delete device with id = 5
+
+
+================================================================================
+  4. WHAT IS HTTP? (THE LANGUAGE THEY SPEAK)
+================================================================================
+
+  HTTP (HyperText Transfer Protocol) is the communication protocol used
+  between the browser and the server. Every API call is an HTTP transaction.
+
+  AN HTTP REQUEST HAS 4 PARTS:
+  ────────────────────────────
+
+  1. METHOD (verb):    GET / POST / PUT / DELETE
+  2. URL:              https://localhost:7110/api/devices
+  3. HEADERS:          Key-value pairs with metadata
+  4. BODY:             Optional data payload (used in POST, PUT)
+
+  EXAMPLE HTTP REQUEST (Adding a Device):
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  POST /api/devices HTTP/1.1                                         │
+  │  Host: localhost:7110                                               │
+  │  Content-Type: application/json                                     │
+  │  Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...    │
+  │  Content-Length: 89                                                 │
+  │                                                                     │
+  │  {                                                                  │
+  │    "serialNumber": "SN-001-XYZ",                                   │
+  │    "model": "ThinkPad X1",                                         │
+  │    "status": "Active",                                              │
+  │    "firmwareVersion": "2.4.1"                                       │
+  │  }                                                                  │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  AN HTTP RESPONSE HAS 3 PARTS:
+  ──────────────────────────────
+
+  1. STATUS CODE:  A number telling if it worked
+  2. HEADERS:      Metadata about the response
+  3. BODY:         The actual data returned (JSON)
+
+  EXAMPLE HTTP RESPONSE (Device Created):
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  HTTP/1.1 201 Created                                               │
+  │  Content-Type: application/json; charset=utf-8                      │
+  │  Location: /api/devices/42                                          │
+  │                                                                     │
+  │  {                                                                  │
+  │    "id": 42,                                                        │
+  │    "serialNumber": "SN-001-XYZ",                                   │
+  │    "model": "ThinkPad X1",                                         │
+  │    "status": "Active",                                              │
+  │    "firmwareVersion": "2.4.1",                                      │
+  │    "createdAt": "2024-01-15T10:30:00Z",                            │
+  │    "updatedAt": "2024-01-15T10:30:00Z"                             │
+  │  }                                                                  │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  HTTP STATUS CODES USED IN OUR APP:
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  200 OK            → Request succeeded, data in body                │
+  │  201 Created       → New resource created successfully              │
+  │  204 No Content    → Succeeded but no data to return (DELETE)       │
+  │  400 Bad Request   → Validation failed (missing fields, etc.)       │
+  │  401 Unauthorized  → No token or invalid token                      │
+  │  403 Forbidden     → Valid token but wrong role                     │
+  │  404 Not Found     → Resource with that ID doesn't exist            │
+  │  409 Conflict      → Duplicate data (serial number already exists)  │
+  │  500 Server Error  → Something crashed on the backend               │
+  └──────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+  5. WHAT IS JSON? (THE FORMAT THEY EXCHANGE)
+================================================================================
+
+  JSON (JavaScript Object Notation) is the data format used to send data
+  between React and ASP.NET Core. It's a text format that both sides can
+  read and write easily.
+
+  JSON RULES:
+  - Objects use { } with "key": value pairs.
+  - Arrays use [ ] with comma-separated items.
+  - String values use double quotes.
+  - Numbers, booleans (true/false), and null have no quotes.
+
+  EXAMPLE — A Device object in JSON:
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  {                                                                  │
+  │    "id": 1,                           ← number                     │
+  │    "serialNumber": "SN-001-XYZ",      ← string                     │
+  │    "model": "ThinkPad X1",            ← string                     │
+  │    "status": "active",                ← string                     │
+  │    "firmwareVersion": null,           ← null (no firmware set)     │
+  │    "createdAt": "2024-01-15T10:30:00",← string (ISO date format)   │
+  │    "updatedAt": "2024-01-15T10:30:00" ← string                     │
+  │  }                                                                  │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  HOW ASP.NET CORE HANDLES JSON:
+  - Incoming JSON (request body) → ASP.NET deserializes it into a C# object
+      e.g., JSON → CreateDeviceRequest { SerialNumber, Model, Status }
+  - Outgoing data (response body) → ASP.NET serializes C# object to JSON
+      e.g., Device { Id, SerialNumber, ... } → JSON string sent to browser
+  - ASP.NET uses System.Text.Json for this automatically.
+  - Property names are automatically converted: PascalCase (C#) ↔ camelCase (JSON)
+      Example: SerialNumber (C#) ↔ serialNumber (JSON/TypeScript)
+
+  HOW REACT/TYPESCRIPT HANDLES JSON:
+  - response.json() → parses JSON string into a JavaScript object.
+  - TypeScript interfaces describe the shape: interface Device { id: number; ... }
+  - The parsed object is used directly in components.
+
+
+================================================================================
+  6. WHAT IS CORS? (WHY WE NEED IT)
+================================================================================
+
+  CORS = Cross-Origin Resource Sharing
+
+  THE PROBLEM:
+  ─────────────
+  Browsers have a security rule called the "Same-Origin Policy":
+  A webpage at http://localhost:8080 is NOT allowed to make HTTP requests
+  to http://localhost:7110 because they have DIFFERENT ports (origins).
+
+  Without CORS configured, the browser would BLOCK every API call from
+  the React app with an error like:
+    "Access to fetch at 'https://localhost:7110/api/devices' from origin
+     'http://localhost:8080' has been blocked by CORS policy."
+
+  THE SOLUTION:
+  ──────────────
+  The server (ASP.NET Core) tells the browser "it's OK to accept requests
+  from http://localhost:8080" by sending special CORS headers in its response.
+
+  HOW WE CONFIGURED CORS IN Program.cs:
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  builder.Services.AddCors(options =>                                │
+  │  {                                                                  │
+  │      options.AddPolicy("AllowReactApp", policy =>                  │
+  │      {                                                              │
+  │          policy.WithOrigins(                                        │
+  │              "http://localhost:8080",                               │
+  │              "https://localhost:8080"                               │
+  │          )                                                          │
+  │          .AllowAnyHeader()    ← accept any request header           │
+  │          .AllowAnyMethod();   ← accept GET, POST, PUT, DELETE, etc  │
+  │      });                                                            │
+  │  });                                                                │
+  │                                                                     │
+  │  // In middleware pipeline:                                         │
+  │  app.UseCors("AllowReactApp");                                      │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  WHAT HAPPENS WITH CORS (PREFLIGHT):
+  ────────────────────────────────────
+  For POST/PUT/DELETE requests, the browser first sends a "preflight" request:
+
+  Step 1: Browser sends OPTIONS request (preflight check):
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  OPTIONS /api/devices HTTP/1.1                                      │
+  │  Origin: http://localhost:8080                                      │
+  │  Access-Control-Request-Method: POST                                │
+  │  Access-Control-Request-Headers: content-type, authorization        │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  Step 2: Server responds with CORS headers (green light):
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  HTTP/1.1 204 No Content                                            │
+  │  Access-Control-Allow-Origin: http://localhost:8080                 │
+  │  Access-Control-Allow-Methods: POST,GET,PUT,DELETE                  │
+  │  Access-Control-Allow-Headers: content-type,authorization           │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  Step 3: Browser sees it's allowed → sends the actual POST/PUT/DELETE request.
+
+  NOTE: GET requests with simple headers do NOT trigger a preflight.
+        Only "non-simple" requests (with Authorization header, or
+        POST/PUT/DELETE with JSON body) trigger the preflight check.
+
+
+================================================================================
+  7. THE api.ts LAYER — THE COMMUNICATION BRIDGE
+================================================================================
+
+  FILE: src/lib/api.ts
+
+  This file is the SINGLE place all HTTP communication happens.
+  No component ever calls fetch() directly — everything goes through api.ts.
+
+  ── STRUCTURE OF api.ts ──────────────────────────────────────────────────
+
+  A) BASE URL CONFIGURATION:
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  const API_BASE_URL =                                               │
+  │    import.meta.env.VITE_API_URL || 'https://localhost:7110/api';   │
+  └─────────────────────────────────────────────────────────────────────┘
+  - import.meta.env.VITE_API_URL reads from the .env file (if set).
+  - Falls back to the local dev URL if not set.
+  - Changing this one value switches all API calls to a different server.
+
+  B) getToken() — READS JWT FROM STORAGE:
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  function getToken(): string | null {                               │
+  │    try {                                                            │
+  │      const stored = localStorage.getItem("auth_user");             │
+  │      if (!stored) return null;                                      │
+  │      return JSON.parse(stored).token ?? null;                       │
+  │    } catch {                                                        │
+  │      return null;                                                   │
+  │    }                                                                │
+  │  }                                                                  │
+  └─────────────────────────────────────────────────────────────────────┘
+  - Reads the JSON string stored by AuthContext after login.
+  - Parses it and extracts the "token" field.
+  - Returns null if user is not logged in (no stored data).
+
+  C) fetchApi() — THE CORE HTTP FUNCTION:
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  async function fetchApi<T>(                                        │
+  │    endpoint: string,                                                │
+  │    options?: RequestInit                                            │
+  │  ): Promise<T> {                                                    │
+  │                                                                     │
+  │    const token = getToken();                                        │
+  │                                                                     │
+  │    const response = await fetch(`${API_BASE_URL}${endpoint}`, {    │
+  │      ...options,                   ← spread any extra options       │
+  │      headers: {                                                     │
+  │        "Content-Type": "application/json",  ← always set           │
+  │        ...(token                            ← add JWT if available │
+  │          ? { Authorization: `Bearer ${token}` }                    │
+  │          : {}),                                                     │
+  │        ...options?.headers,        ← allow override                │
+  │      },                                                             │
+  │    });                                                              │
+  │                                                                     │
+  │    if (response.status === 401) {  ← token expired/invalid         │
+  │      localStorage.removeItem("auth_user");                         │
+  │      window.location.href = "/login";                              │
+  │      throw new Error("Unauthorized");                              │
+  │    }                                                                │
+  │                                                                     │
+  │    if (!response.ok) {             ← 400, 403, 404, 409, 500 etc  │
+  │      throw new Error(                                               │
+  │        `API error: ${response.status} ${response.statusText}`      │
+  │      );                                                             │
+  │    }                                                                │
+  │                                                                     │
+  │    if (response.status === 204) {  ← DELETE returns no body        │
+  │      return {} as T;                                                │
+  │    }                                                                │
+  │                                                                     │
+  │    return response.json();         ← parse JSON and return          │
+  │  }                                                                  │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  THE <T> GENERIC:
+  - fetchApi<Device[]>  means: "I expect an array of Device objects back"
+  - fetchApi<Device>    means: "I expect a single Device object back"
+  - TypeScript uses this for type checking — no runtime effect.
+
+  D) EXPORTED API FUNCTIONS:
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  // Devices                                                         │
+  │  export const getDevices = ()                                       │
+  │    => fetchApi<Device[]>('/Devices');                               │
+  │                                                                     │
+  │  export const getDeviceById = (id: number)                         │
+  │    => fetchApi<Device>(`/Devices/${id}`);                          │
+  │                                                                     │
+  │  export const addDevice = (device: CreateDevicePayload)            │
+  │    => fetchApi<Device>('/Devices', {                                │
+  │         method: 'POST',                                             │
+  │         body: JSON.stringify(device)  ← JS object → JSON string    │
+  │       });                                                           │
+  │                                                                     │
+  │  export const updateDevice = (id: number, device: UpdatePayload)   │
+  │    => fetchApi<Device>(`/Devices/${id}`, {                         │
+  │         method: 'PUT',                                              │
+  │         body: JSON.stringify(device)                                │
+  │       });                                                           │
+  │                                                                     │
+  │  export const deleteDevice = (id: number)                          │
+  │    => fetchApi<void>(`/Devices/${id}`, { method: 'DELETE' });      │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  WHY SEPARATE API FUNCTIONS:
+  - Components import only what they need: import { getDevices } from "@/lib/api"
+  - If the backend URL changes → change ONE place (API_BASE_URL)
+  - Easy to mock in tests
+  - TypeScript gives autocomplete and type safety for all returned data
+
+
+================================================================================
+  8. TANSTACK QUERY — HOW REACT MANAGES API CALLS
+================================================================================
+
+  TanStack Query (formerly React Query) is a library that handles all the
+  complexity of server data in React: fetching, caching, re-fetching,
+  loading states, error states, and cache invalidation.
+
+  WITHOUT TanStack Query (the hard way):
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  // You'd have to write all this yourself in every component:       │
+  │  const [devices, setDevices] = useState([]);                        │
+  │  const [isLoading, setIsLoading] = useState(true);                 │
+  │  const [error, setError] = useState(null);                         │
+  │                                                                     │
+  │  useEffect(() => {                                                  │
+  │    setIsLoading(true);                                              │
+  │    getDevices()                                                     │
+  │      .then(data => { setDevices(data); setIsLoading(false); })     │
+  │      .catch(err => { setError(err); setIsLoading(false); });       │
+  │  }, []);                                                            │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  WITH TanStack Query (the easy way):
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  const { data: devices = [], isLoading, isError } = useQuery({     │
+  │    queryKey: ["devices"],      ← unique cache key                   │
+  │    queryFn: getDevices,        ← the function to call              │
+  │  });                                                                │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  TanStack Query gives you for FREE:
+  - Automatic loading state tracking (isLoading = true while fetching)
+  - Automatic error state tracking (isError = true if fetchFailed)
+  - In-memory caching (same queryKey = reuse cached data)
+  - Background refetching (stale data gets refreshed automatically)
+  - Cache invalidation (after mutation, tell Query to refetch fresh data)
+
+  KEY CONCEPTS:
+
+  useQuery — for READING data (GET requests):
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  const { data, isLoading, isError } = useQuery({                   │
+  │    queryKey: ["devices"],   ← cache identifier                      │
+  │    queryFn: getDevices,     ← calls our api.ts function            │
+  │  });                                                                │
+  │                                                                     │
+  │  // data    = the Device[] array (undefined while loading)          │
+  │  // isLoading = true until first response arrives                   │
+  │  // isError  = true if fetchApi throws an error                    │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  useMutation — for WRITING data (POST, PUT, DELETE):
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  const addDeviceMutation = useMutation({                            │
+  │    mutationFn: addDevice,       ← calls api.ts addDevice()         │
+  │    onSuccess: () => {                                               │
+  │      queryClient.invalidateQueries({ queryKey: ["devices"] });     │
+  │      // ↑ tells TanStack Query: cached "devices" data is stale,    │
+  │      //   please re-fetch from the server.                          │
+  │    },                                                               │
+  │  });                                                                │
+  │                                                                     │
+  │  // To trigger the mutation:                                        │
+  │  addDeviceMutation.mutate({ serialNumber: "SN-001", ... });        │
+  │  // isPending = true while the POST request is in-flight            │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  QUERY CACHE INVALIDATION FLOW:
+  ────────────────────────────────
+  1. User adds a new device → useMutation fires POST /api/devices
+  2. Server creates the device → returns 201 Created
+  3. onSuccess callback runs → queryClient.invalidateQueries(["devices"])
+  4. TanStack Query marks cached "devices" data as stale
+  5. Next time any component uses useQuery(["devices"]):
+     → TanStack Query re-fetches GET /api/devices automatically
+  6. Component re-renders with the updated list including the new device
+  7. User sees the new device in the table without refreshing the page
+
+
+================================================================================
+  9. STEP-BY-STEP: GET REQUEST FLOW (READING DATA)
+================================================================================
+
+  SCENARIO: User navigates to /devices page. The Devices.tsx component
+            loads and fetches the list of devices from the backend.
+
+  ─── STEP 1: Component Mounts ────────────────────────────────────────────
+
+    React renders Devices.tsx.
+    useQuery hook runs immediately:
+      queryKey: ["devices"]
+      queryFn: getDevices
+
+    TanStack Query checks its cache:
+      → Is there fresh data for key "devices"? NO.
+      → Calls getDevices() function from api.ts.
+      → Sets isLoading = true.
+      → Component renders: "Loading devices..."
+
+  ─── STEP 2: api.ts getDevices() runs ───────────────────────────────────
+
+    export const getDevices = () => fetchApi<Device[]>('/Devices');
+
+    fetchApi('/Devices') is called.
+
+  ─── STEP 3: fetchApi() builds the HTTP request ─────────────────────────
+
+    endpoint = '/Devices'
+    Full URL  = 'https://localhost:7110/api/Devices'
+    method    = GET (default, no options passed)
+    token     = read from localStorage → "eyJhbGci..."
+
+    Browser fetch() call:
+    ┌───────────────────────────────────────────────────────────────────┐
+    │  GET https://localhost:7110/api/Devices                           │
+    │  Headers:                                                         │
+    │    Content-Type: application/json                                 │
+    │    Authorization: Bearer eyJhbGci...                              │
+    └───────────────────────────────────────────────────────────────────┘
+
+  ─── STEP 4: HTTP Request travels over the network ───────────────────────
+
+    The browser sends the HTTP packet to port 7110 on localhost.
+    The packet arrives at ASP.NET Core's Kestrel web server.
+
+  ─── STEP 5: ASP.NET Core Middleware Pipeline runs ───────────────────────
+
+    1. UseCors()
+       → Checks request Origin: http://localhost:8080
+       → Matches the "AllowReactApp" policy
+       → Adds Access-Control-Allow-Origin header to response
+       → Continues to next middleware
+
+    2. UseAuthentication()
+       → Reads Authorization header: "Bearer eyJhbGci..."
+       → Extracts the token part after "Bearer "
+       → JwtBearer handler validates the token:
+           ✓ Signature valid (matches our secret key)
+           ✓ Issuer = "DeviceCycleServer" ✓
+           ✓ Audience = "DeviceCycleClient" ✓
+           ✓ Not expired ✓
+       → Reads claims from token payload:
+           email: "user@example.com"
+           role: "User"
+           sub: "abc-123"
+       → Sets HttpContext.User (the user is now "known" to the request)
+       → Continues to next middleware
+
+    3. UseAuthorization()
+       → Checks the endpoint's [Authorize] attribute
+       → DevicesController.GetDevices() has [Authorize]
+       → HttpContext.User is authenticated → ALLOWED
+       → Continues to controller
+
+  ─── STEP 6: DevicesController.GetDevices() runs ─────────────────────────
+
+    [HttpGet]
+    [Authorize]
+    public async Task<ActionResult<IEnumerable<DeviceDto>>> GetDevices(
+        [FromQuery] string? status)
+    {
+        var devices = await _context.Devices
+            .Where(d => status == null || d.Status == status)
+            .Select(d => ToDto(d))
+            .ToListAsync();
+
+        return Ok(devices);
+    }
+
+    What happens:
+    - _context.Devices → Entity Framework creates SQL query.
+    - .Where(...)       → adds WHERE clause if status filter provided.
+    - .Select(d => ToDto(d)) → maps Device entity to DeviceDto record.
+    - .ToListAsync()    → sends SQL to SQL Server, waits for results.
+    - SQL executed: SELECT id, serial_number, model, status,
+                    firmware_version, created_at, updated_at
+                    FROM devices
+    - Returns List<DeviceDto> to Ok() method.
+    - Ok() wraps it in HTTP 200 response.
+    - ASP.NET serializes the List to JSON automatically.
+
+  ─── STEP 7: HTTP Response sent back ─────────────────────────────────────
+
+    ┌───────────────────────────────────────────────────────────────────┐
+    │  HTTP/1.1 200 OK                                                  │
+    │  Content-Type: application/json; charset=utf-8                    │
+    │  Access-Control-Allow-Origin: http://localhost:8080               │
+    │                                                                   │
+    │  [                                                                │
+    │    { "id":1, "serialNumber":"SN-001", "model":"ThinkPad X1",     │
+    │      "status":"active", "firmwareVersion":"2.4.1",               │
+    │      "createdAt":"2024-01-15T10:30:00", "updatedAt":"..." },     │
+    │    { "id":2, "serialNumber":"SN-002", ... }                      │
+    │  ]                                                                │
+    └───────────────────────────────────────────────────────────────────┘
+
+  ─── STEP 8: fetchApi() processes the response ────────────────────────────
+
+    response.ok = true (status 200)
+    response.status ≠ 204
+    return response.json()
+    → Browser parses the JSON string into a JavaScript array of objects.
+    → Returns Device[] to TanStack Query.
+
+  ─── STEP 9: TanStack Query updates state ────────────────────────────────
+
+    - Stores Device[] in its cache under key "devices".
+    - Sets isLoading = false.
+    - Sets data = Device[].
+    - Triggers React to re-render Devices.tsx.
+
+  ─── STEP 10: Component re-renders with data ─────────────────────────────
+
+    const { data: devices = [], isLoading } = useQuery(...)
+    // isLoading is now false
+    // devices is the Device[] array from the server
+
+    Component renders the AnimatedTable with devices data.
+    User sees the table of devices on screen.
+
+
+================================================================================
+  10. STEP-BY-STEP: POST REQUEST FLOW (CREATING DATA)
+================================================================================
+
+  SCENARIO: Admin fills the "Add Device" form and clicks "Add Device".
+
+  ─── STEP 1: User fills form and clicks Add ─────────────────────────────
+
+    handleAdd() function runs in Devices.tsx:
+
+    addDeviceMutation.mutate({
+      serialNumber: "SN-999",
+      model: "Dell XPS",
+      status: "Active",
+      firmwareVersion: "3.0.1"
+    });
+
+  ─── STEP 2: useMutation triggers ───────────────────────────────────────
+
+    TanStack Query calls: addDevice({ serialNumber: "SN-999", ... })
+    Sets addDeviceMutation.isPending = true.
+    The "Add Device" button shows "Adding..." and is disabled.
+
+  ─── STEP 3: api.ts addDevice() calls fetchApi() ────────────────────────
+
+    fetchApi<Device>('/Devices', {
+      method: 'POST',
+      body: JSON.stringify({
+        serialNumber: "SN-999",
+        model: "Dell XPS",
+        status: "Active",
+        firmwareVersion: "3.0.1"
+      })
+    })
+
+    JSON.stringify() converts JS object → JSON string:
+    '{"serialNumber":"SN-999","model":"Dell XPS","status":"Active","firmwareVersion":"3.0.1"}'
+
+  ─── STEP 4: HTTP POST request sent ─────────────────────────────────────
+
+    ┌───────────────────────────────────────────────────────────────────┐
+    │  POST https://localhost:7110/api/Devices HTTP/1.1                 │
+    │  Content-Type: application/json                                   │
+    │  Authorization: Bearer eyJhbGci... (Admin token)                  │
+    │                                                                   │
+    │  {"serialNumber":"SN-999","model":"Dell XPS",                    │
+    │   "status":"Active","firmwareVersion":"3.0.1"}                    │
+    └───────────────────────────────────────────────────────────────────┘
+
+  ─── STEP 5: Backend processes POST ─────────────────────────────────────
+
+    Authentication: token validated → user is Admin ✓
+
+    Authorization: [Authorize(Roles="Admin")] → role is "Admin" ✓
+
+    DevicesController.CreateDevice() runs:
+      1. ASP.NET deserializes JSON body → CreateDeviceRequest object.
+      2. ModelState.IsValid check → serialNumber is provided ✓
+      3. Check if serial number already exists in DB:
+           SELECT * FROM devices WHERE serial_number = 'SN-999'
+           → No row found → OK to proceed
+      4. Create new Device entity:
+           { SerialNumber="SN-999", Model="Dell XPS",
+             Status="Active", FirmwareVersion="3.0.1",
+             CreatedAt=now, UpdatedAt=now }
+      5. _context.Devices.Add(device) → stages the insert.
+      6. await _context.SaveChangesAsync() → runs:
+           INSERT INTO devices (serial_number, model, status,
+             firmware_version, created_at, updated_at)
+           VALUES ('SN-999', 'Dell XPS', 'Active', '3.0.1', now, now)
+         → SQL Server assigns id = 42 (auto-increment).
+      7. Add change log:
+           _context.ChangeLogs.Add(new ChangeLog {
+             DeviceId = 42, Action = "CREATED", CreatedAt = now
+           });
+           await _context.SaveChangesAsync();
+      8. Return CreatedAtAction → HTTP 201 Created with the new Device JSON.
+
+  ─── STEP 6: HTTP 201 response sent back ─────────────────────────────────
+
+    ┌───────────────────────────────────────────────────────────────────┐
+    │  HTTP/1.1 201 Created                                             │
+    │  Content-Type: application/json; charset=utf-8                    │
+    │  Location: /api/devices/42                                        │
+    │                                                                   │
+    │  { "id":42, "serialNumber":"SN-999", "model":"Dell XPS",         │
+    │    "status":"Active", "firmwareVersion":"3.0.1",                  │
+    │    "createdAt":"2024-01-15T11:00:00",                             │
+    │    "updatedAt":"2024-01-15T11:00:00" }                            │
+    └───────────────────────────────────────────────────────────────────┘
+
+  ─── STEP 7: onSuccess callback runs ─────────────────────────────────────
+
+    The mutation's onSuccess fires:
+      queryClient.invalidateQueries({ queryKey: ["devices"] })
+
+    TanStack Query marks the "devices" cache as stale.
+    Automatically re-fetches GET /api/devices in the background.
+
+  ─── STEP 8: UI updates ──────────────────────────────────────────────────
+
+    - Modal closes: setAddModalOpen(false)
+    - Form resets
+    - Devices list refreshes with the new device at the top
+    - isPending returns to false
+    - User sees the new device "SN-999" in the table
+
+
+================================================================================
+  11. STEP-BY-STEP: PUT REQUEST FLOW (UPDATING DATA)
+================================================================================
+
+  SCENARIO: Admin edits Device id=5, changes status from "Active" to "Retired".
+
+  ─── STEP 1: handleEdit() runs ───────────────────────────────────────────
+
+    updateDeviceMutation.mutate({
+      id: 5,
+      payload: { status: "Retired" }
+    });
+
+  ─── STEP 2: api.ts updateDevice() called ────────────────────────────────
+
+    fetchApi<Device>('/Devices/5', {
+      method: 'PUT',
+      body: JSON.stringify({ status: "Retired" })
+    })
+
+  ─── STEP 3: HTTP PUT request sent ───────────────────────────────────────
+
+    ┌───────────────────────────────────────────────────────────────────┐
+    │  PUT https://localhost:7110/api/Devices/5 HTTP/1.1                │
+    │  Content-Type: application/json                                   │
+    │  Authorization: Bearer eyJhbGci... (Admin token)                  │
+    │                                                                   │
+    │  {"status":"Retired"}                                             │
+    └───────────────────────────────────────────────────────────────────┘
+
+  ─── STEP 4: Backend processes PUT ───────────────────────────────────────
+
+    DevicesController.UpdateDevice(5, { Status="Retired" }) runs:
+      1. Find device: SELECT * FROM devices WHERE id = 5 → found ✓
+      2. status changed from "Active" to "Retired"
+         changeEntries.Add("STATUS_CHANGED: Active → Retired")
+      3. device.Status = "Retired"
+      4. device.UpdatedAt = now
+      5. Add ChangeLog: { DeviceId=5, Action="STATUS_CHANGED: Active → Retired" }
+      6. SaveChangesAsync() → runs:
+           UPDATE devices SET status='Retired', updated_at=now WHERE id=5
+           INSERT INTO change_logs (device_id, action, created_at)
+           VALUES (5, 'STATUS_CHANGED: Active → Retired', now)
+      7. Return Ok(device) → HTTP 200 with updated device JSON.
+
+  ─── STEP 5: Response received, cache invalidated, UI updates ─────────────
+
+    onSuccess → invalidate "devices" cache → refetch → table updates.
+    Device id=5 now shows status "Retired" in the UI.
+
+
+================================================================================
+  12. STEP-BY-STEP: DELETE REQUEST FLOW (DELETING DATA)
+================================================================================
+
+  SCENARIO: Admin clicks Delete on Device id=7. Confirms the dialog.
+
+  ─── STEP 1: handleDelete(7) runs ────────────────────────────────────────
+
+    if (confirm("Are you sure?")) {
+      deleteDeviceMutation.mutate(7);
+    }
+
+  ─── STEP 2: api.ts deleteDevice() called ────────────────────────────────
+
+    fetchApi<void>('/Devices/7', { method: 'DELETE' })
+    (No body for DELETE)
+
+  ─── STEP 3: HTTP DELETE request sent ────────────────────────────────────
+
+    ┌───────────────────────────────────────────────────────────────────┐
+    │  DELETE https://localhost:7110/api/Devices/7 HTTP/1.1             │
+    │  Content-Type: application/json                                   │
+    │  Authorization: Bearer eyJhbGci... (Admin token)                  │
+    │  (no body)                                                        │
+    └───────────────────────────────────────────────────────────────────┘
+
+  ─── STEP 4: Backend processes DELETE ────────────────────────────────────
+
+    DevicesController.DeleteDevice(7) runs:
+      1. Find device with its ChangeLogs:
+           SELECT * FROM devices WHERE id = 7
+           SELECT * FROM change_logs WHERE device_id = 7
+      2. Remove all change logs for this device first (FK constraint):
+           DELETE FROM change_logs WHERE device_id = 7
+      3. Remove the device:
+           DELETE FROM devices WHERE id = 7
+      4. SaveChangesAsync() → commits both deletes in a transaction.
+      5. Return NoContent() → HTTP 204 No Content (no body).
+
+  ─── STEP 5: fetchApi() handles 204 ─────────────────────────────────────
+
+    response.status === 204 → return {} as T (return empty object)
+    No JSON to parse since body is empty.
+
+  ─── STEP 6: Cache invalidated, UI updates ───────────────────────────────
+
+    onSuccess → invalidate "devices" → refetch → device id=7 gone from table.
+
+
+================================================================================
+  13. HOW JWT TOKEN GETS ATTACHED TO EVERY REQUEST
+================================================================================
+
+  AFTER LOGIN, the token is stored in localStorage as:
+  ┌───────────────────────────────────────────────────────────────────────┐
+  │  localStorage["auth_user"] = JSON.stringify({                        │
+  │    token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",               │
+  │    email: "admin@example.com",                                       │
+  │    fullName: "John Doe",                                             │
+  │    role: "Admin",                                                    │
+  │    expiresAt: "2024-01-15T12:00:00Z"                                │
+  │  })                                                                  │
+  └───────────────────────────────────────────────────────────────────────┘
+
+  ON EVERY API CALL, fetchApi() does:
+
+  1. localStorage.getItem("auth_user")
+     → Gets the stored JSON string.
+
+  2. JSON.parse(stored).token
+     → Extracts just the token string: "eyJhbGciOiJIUzI1NiIs..."
+
+  3. Adds to headers:
+     Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+
+  4. Server's UseAuthentication() middleware reads it:
+     → Takes the value after "Bearer " (splits on space).
+     → Decodes and validates the JWT.
+     → Reads the "role" claim from the token payload.
+     → Sets HttpContext.User.IsAuthenticated = true.
+     → Sets HttpContext.User.Claims with email, role, userId.
+
+  TOKEN EXPIRY HANDLING:
+  ─────────────────────
+  If the token is expired (> 120 minutes old):
+    - Server's JWT validation fails on ValidateLifetime check.
+    - Server returns 401 Unauthorized.
+    - fetchApi() detects response.status === 401.
+    - Clears localStorage (removes stale token).
+    - Redirects to /login.
+    - AuthContext auto-logout timer also fires (set at login time).
+
+
+================================================================================
+  14. HOW ERRORS ARE HANDLED (FRONTEND + BACKEND)
+================================================================================
+
+  BACKEND ERROR RESPONSES:
+  ─────────────────────────
+
+  Validation Error (400 Bad Request):
+    return BadRequest(new { errors = result.Errors.Select(e => e.Description) });
+    Response: { "errors": ["Password must have at least one digit."] }
+
+  Not Found (404):
+    return NotFound(new { message = "Device with id 5 not found." });
+    Response: { "message": "Device with id 5 not found." }
+
+  Conflict (409):
+    return Conflict(new { message = "Serial number already exists." });
+    Response: { "message": "Serial number 'SN-001' already exists." }
+
+  Unauthorized (401):
+    ASP.NET automatically returns 401 when [Authorize] fails.
+    Response body may be empty or contain challenge info.
+
+  Forbidden (403):
+    ASP.NET automatically returns 403 when role doesn't match.
+    Response: { "message": "Invalid admin registration code." }
+
+  FRONTEND ERROR HANDLING:
+  ─────────────────────────
+
+  In fetchApi():
+    if (response.status === 401) {
+      → Clear localStorage + redirect to /login
+    }
+    if (!response.ok) {
+      → throw new Error(`API error: ${status} ${statusText}`)
+      → TanStack Query catches this → sets isError = true
+    }
+
+  In Login/Register pages (manual fetch):
+    const res = await fetch(...)
+    if (!res.ok) {
+      const data = await res.json();
+      setError(data.message ?? "Something went wrong");
+    }
+    → Error message displayed in the red error box in the form.
+
+  In mutations (useMutation):
+    TanStack Query catches thrown errors from fetchApi().
+    mutation.isError = true
+    mutation.error = the Error object
+    Components can display: {mutation.isError && <p>Error occurred</p>}
+
+  In queries (useQuery):
+    TanStack Query retries failed queries up to 3 times by default.
+    Then sets isError = true.
+    Components can display: {isError && <p>Failed to load data</p>}
+
+
+================================================================================
+  15. COMPLETE VISUAL FLOW DIAGRAMS
+================================================================================
+
+  ── FULL GET /api/devices FLOW ────────────────────────────────────────────
+
+  User opens /devices
+       │
+       ▼
+  Devices.tsx renders
+  useQuery(["devices"], getDevices) fires
+  isLoading = true → "Loading devices..." shown
+       │
+       ▼
+  TanStack Query calls getDevices()
+       │
+       ▼
+  api.ts: fetchApi<Device[]>("/Devices")
+       │
+       ▼
+  getToken() → reads localStorage → "eyJhbGci..."
+       │
+       ▼
+  fetch("https://localhost:7110/api/Devices", {
+    method: "GET",
+    headers: {
+      Content-Type: "application/json",
+      Authorization: "Bearer eyJhbGci..."
+    }
+  })
+       │
+       ▼
+  ════════════ HTTP REQUEST TRAVELS ════════════
+       │
+       ▼
+  Kestrel (port 7110) receives request
+       │
+       ▼
+  UseCors() → Origin allowed ✓ → adds CORS headers
+       │
+       ▼
+  UseAuthentication() → JWT valid ✓ → User = { role:"User", email:"..." }
+       │
+       ▼
+  UseAuthorization() → [Authorize] → authenticated ✓
+       │
+       ▼
+  DevicesController.GetDevices()
+       │
+       ▼
+  EF Core: _context.Devices.Select(d => ToDto(d)).ToListAsync()
+       │
+       ▼
+  SQL Server: SELECT id, serial_number, ... FROM devices
+       │
+       ▼
+  Returns List<DeviceDto>
+       │
+       ▼
+  return Ok(devices) → HTTP 200
+  ASP.NET serializes List<DeviceDto> → JSON array string
+       │
+       ▼
+  ════════════ HTTP RESPONSE TRAVELS ════════════
+       │
+       ▼
+  Browser receives HTTP 200 + JSON body
+       │
+       ▼
+  fetchApi: response.ok = true
+  response.json() → Device[] JavaScript array
+       │
+       ▼
+  TanStack Query:
+    data = Device[]
+    isLoading = false
+    cached under key "devices"
+    triggers React re-render
+       │
+       ▼
+  Devices.tsx re-renders:
+    AnimatedTable receives devices data
+    Renders rows for each device
+       │
+       ▼
+  User sees device list on screen ✓
+
+
+  ── FULL POST /api/devices FLOW (ADMIN) ──────────────────────────────────
+
+  Admin fills form → clicks "Add Device"
+       │
+       ▼
+  handleAdd() → addDeviceMutation.mutate({ serialNumber, model, status, fw })
+       │
+       ▼
+  isPending = true → button shows "Adding..."
+       │
+       ▼
+  addDevice({ serialNumber, model, status, firmwareVersion })
+       │
+       ▼
+  fetchApi("/Devices", {
+    method: "POST",
+    body: JSON.stringify({ serialNumber, model, status, firmwareVersion })
+  })
+       │
+       ▼
+  fetch("https://localhost:7110/api/Devices", {
+    method: "POST",
+    headers: {
+      Content-Type: "application/json",
+      Authorization: "Bearer eyJhbGci... (Admin token)"
+    },
+    body: '{"serialNumber":"SN-999","model":"Dell XPS",...}'
+  })
+       │
+       ▼
+  ════════ HTTP POST REQUEST TRAVELS ════════
+       │
+       ▼
+  Kestrel receives POST
+       │
+       ▼
+  UseCors() → allowed ✓
+       │
+       ▼
+  UseAuthentication() → JWT valid, Role = "Admin" ✓
+       │
+       ▼
+  UseAuthorization() → [Authorize(Roles="Admin")] → "Admin" ✓ ALLOWED
+       │
+       ▼
+  CreateDevice() runs:
+    ModelState.IsValid ✓
+    Check serial uniqueness → OK ✓
+    Insert into devices table
+    Insert into change_logs table
+    Return CreatedAtAction → 201 Created + new Device JSON
+       │
+       ▼
+  ════════ HTTP 201 RESPONSE TRAVELS ════════
+       │
+       ▼
+  fetchApi: response.ok = true
+  response.json() → Device { id:42, serialNumber:"SN-999", ... }
+       │
+       ▼
+  TanStack Query onSuccess fires:
+    queryClient.invalidateQueries(["devices"])
+    → marks "devices" cache as stale
+       │
+       ▼
+  TanStack Query auto-refetches GET /api/devices
+       │
+       ▼
+  Devices.tsx re-renders:
+    Modal closes
+    Table shows new device "SN-999" ✓
+
+
+================================================================================
+  16. REAL CODE TRACE — FROM BUTTON CLICK TO SCREEN UPDATE
+================================================================================
+
+  Let's trace EXACTLY what happens when a User logs in and the
+  Devices page loads. Every function call, in order.
+
+  ── TRACE 1: Login ──────────────────────────────────────────────────────
+
+  1.  User types email + password → clicks "Sign In"
+  2.  LoginPage.tsx → handleSubmit(e) fires
+  3.  e.preventDefault() → stops form from reloading page
+  4.  setLoading(true)
+  5.  fetch("https://localhost:7110/api/Auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      })
+  6.  --- HTTP request travels to backend ---
+  7.  AuthController.Login() runs
+  8.  UserManager.FindByEmailAsync(email) → finds user in AspNetUsers
+  9.  UserManager.CheckPasswordAsync(user, password) → compares hash → ✓
+  10. UserManager.GetRolesAsync(user) → ["User"]
+  11. GenerateJwtToken(user, "User") creates JWT string
+  12. return Ok(new LoginResponse(token, email, fullName, "User", expiresAt))
+  13. --- HTTP 200 response travels back ---
+  14. res.ok = true → const data = await res.json()
+  15. login({ token, email, fullName, role:"User", expiresAt })
+  16.   → AuthContext.login() stores to localStorage["auth_user"]
+  17.   → setUser(authUser) → React state updates
+  18.   → Auto-logout timer set for 120 minutes
+  19. navigate("/dashboard")
+  20. React Router renders Dashboard component
+
+  ── TRACE 2: Devices Page Loads ──────────────────────────────────────────
+
+  21. User clicks "Devices" in sidebar → navigate("/devices")
+  22. React Router renders Devices.tsx
+  23. Devices() function runs
+  24. const { isAdmin } = useAuth()
+  25.   → useContext(AuthContext) → { user: {..., role:"User"}, isAdmin: false }
+  26. useQuery({ queryKey:["devices"], queryFn:getDevices }) runs
+  27. TanStack Query: cache miss for "devices"
+  28. Calls getDevices()
+  29. getDevices = () => fetchApi<Device[]>('/Devices')
+  30. fetchApi('/Devices') runs:
+  31.   getToken() → localStorage.getItem("auth_user")
+  32.             → JSON.parse(stored) → { token: "eyJ...", role:"User", ... }
+  33.             → returns "eyJ..."
+  34.   fetch("https://localhost:7110/api/Devices", {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer eyJ..."
+          }
+        })
+  35. Component renders: isLoading=true → "Loading devices..." div shown
+  36. --- HTTP GET request travels ---
+  37. ASP.NET: UseAuthentication() → JWT decoded → User.Role = "User"
+  38. UseAuthorization() → [Authorize] → authenticated → PASS
+  39. GetDevices() → EF Core → SQL → List<DeviceDto>
+  40. return Ok(deviceList) → HTTP 200 + JSON
+  41. --- HTTP response travels back ---
+  42. response.ok = true
+  43. response.json() → Device[] array
+  44. TanStack Query: data = Device[], isLoading = false, cached
+  45. React re-renders Devices.tsx:
+  46. devices = Device[] (list of all devices)
+  47. isAdmin = false (regular user)
+  48. columns = [serialNumber, model, status, firmware]  ← NO actions column
+  49. tableData = devices.map(d => ({ ...d, NO actions }))
+  50. <motion.button ... Add Device /> NOT rendered (isAdmin is false)
+  51. <AnimatedTable columns={columns} data={tableData} /> renders table
+  52. User sees the device table — read only, no Add/Edit/Delete buttons ✓
+
+
+================================================================================
+  17. NETWORK TAB — WHAT YOU SEE IN BROWSER DEVTOOLS
+================================================================================
+
+  Press F12 → Network Tab to see all HTTP traffic.
+
+  WHAT YOU'LL SEE FOR GET /api/Devices:
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  Name           Method  Status  Type  Size    Time                  │
+  │  ──────────────────────────────────────────────────────────────      │
+  │  Devices        GET     200     json  2.4 kB  87 ms                 │
+  └──────────────────────────────────────────────────────────────────────┘
+
+  Click the request to see details:
+
+  HEADERS TAB:
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  Request URL: https://localhost:7110/api/Devices                     │
+  │  Request Method: GET                                                 │
+  │  Status Code: 200 OK                                                 │
+  │                                                                      │
+  │  Request Headers:                                                    │
+  │    Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...   │
+  │    Content-Type: application/json                                    │
+  │                                                                      │
+  │  Response Headers:                                                   │
+  │    Content-Type: application/json; charset=utf-8                     │
+  │    Access-Control-Allow-Origin: http://localhost:8080                │
+  └──────────────────────────────────────────────────────────────────────┘
+
+  PREVIEW TAB:
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  ▼ Array[3]                                                          │
+  │    ▼ 0:                                                              │
+  │       id: 1                                                          │
+  │       serialNumber: "SN-001-XYZ"                                     │
+  │       model: "ThinkPad X1"                                           │
+  │       status: "active"                                               │
+  │       firmwareVersion: "2.4.1"                                       │
+  │       createdAt: "2024-01-15T10:30:00"                               │
+  │       updatedAt: "2024-01-15T10:30:00"                               │
+  └──────────────────────────────────────────────────────────────────────┘
+
+  FOR A PREFLIGHT (OPTIONS) REQUEST:
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  Devices        OPTIONS  204     -     0 B     12 ms                 │
+  │  Devices        POST     201     json  312 B   143 ms                │
+  └──────────────────────────────────────────────────────────────────────┘
+  Note: You'll see two rows — the preflight OPTIONS check, then the actual POST.
+
+
+================================================================================
+  18. ALL API ENDPOINTS & THEIR COMMUNICATION PATTERN
+================================================================================
+
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │  Endpoint                   │ Method │ Body Sent      │ Response           │
+  ├────────────────────────────────────────────────────────────────────────────┤
+  │  /api/auth/register         │ POST   │ {email,pw,name}│ {message}          │
+  │  /api/auth/register-admin   │ POST   │ {email,pw,name,│ {message}          │
+  │                             │        │  adminCode}    │                    │
+  │  /api/auth/login            │ POST   │ {email,pw}     │ {token,role,...}   │
+  ├────────────────────────────────────────────────────────────────────────────┤
+  │  /api/Devices               │ GET    │ none           │ Device[]           │
+  │  /api/Devices/{id}          │ GET    │ none           │ Device             │
+  │  /api/Devices/outdated      │ GET    │ none           │ OutdatedDevice[]   │
+  │  /api/Devices/missing-fw    │ GET    │ none           │ Device[]           │
+  │  /api/Devices               │ POST   │ {sn,model,...} │ Device (created)   │
+  │  /api/Devices/{id}          │ PUT    │ {sn?,model?,...}│ Device (updated)  │
+  │  /api/Devices/{id}          │ DELETE │ none           │ empty (204)        │
+  ├────────────────────────────────────────────────────────────────────────────┤
+  │  /api/Firmware              │ GET    │ none           │ Firmware[]         │
+  │  /api/Firmware/{id}         │ GET    │ none           │ Firmware           │
+  │  /api/Firmware              │ POST   │ {version,notes}│ Firmware (created) │
+  ├────────────────────────────────────────────────────────────────────────────┤
+  │  /api/ChangeLogs            │ GET    │ none           │ ChangeLog[]        │
+  │  /api/ChangeLogs/device/{id}│ GET    │ none           │ ChangeLog[]        │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+  QUERY PARAMETERS (passed in URL after "?"):
+    GET /api/Devices?status=active
+    → fetchApi('/Devices?status=active')
+    → Backend: [FromQuery] string? status parameter reads "active"
+    → SQL: WHERE status = 'active'
+
+
+================================================================================
+  19. CORS CONFIGURATION DEEP DIVE
+================================================================================
+
+  WHY TWO ORIGINS IN THE POLICY:
+  ┌───────────────────────────────────────────────────────────────────────┐
+  │  policy.WithOrigins(                                                  │
+  │    "http://localhost:8080",    ← HTTP (non-secure, dev only)          │
+  │    "https://localhost:8080"    ← HTTPS (if Vite runs in HTTPS mode)   │
+  │  )                                                                    │
+  └───────────────────────────────────────────────────────────────────────┘
+
+  WHAT AllowAnyHeader() MEANS:
+  - The frontend can send ANY request header.
+  - Without this, the Authorization header would be blocked.
+  - This is required for JWT authentication to work cross-origin.
+
+  WHAT AllowAnyMethod() MEANS:
+  - The frontend can use GET, POST, PUT, DELETE, OPTIONS, etc.
+  - Without this, only GET would be allowed by default.
+
+  CORS APPLIES TO BROWSER REQUESTS ONLY:
+  - CORS is enforced by the BROWSER, not the server.
+  - If you call the API with Postman/Swagger/curl, CORS is NOT checked.
+  - Only browser-based JavaScript fetch() calls are restricted by CORS.
+  - This is why Swagger can call the API without CORS issues.
+
+  CORS HEADER IN EVERY RESPONSE:
+  When CORS policy matches, ASP.NET adds to every response:
+    Access-Control-Allow-Origin: http://localhost:8080
+  This tells the browser: "yes, the page at :8080 is allowed to see this data."
+
+
+================================================================================
+  20. SUMMARY CHEAT SHEET
+================================================================================
+
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  CONCEPT            │ WHERE                │ WHAT IT DOES               │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │  React Component    │ src/pages/*.tsx      │ Shows UI, triggers queries  │
+  │  useQuery           │ TanStack Query hook  │ Fetches & caches GET data   │
+  │  useMutation        │ TanStack Query hook  │ Handles POST/PUT/DELETE     │
+  │  api.ts fetchApi()  │ src/lib/api.ts       │ Central HTTP helper         │
+  │  getToken()         │ src/lib/api.ts       │ Reads JWT from localStorage │
+  │  localStorage       │ Browser storage      │ Persists JWT between pages  │
+  │  fetch()            │ Browser built-in     │ Sends actual HTTP request   │
+  │  Authorization hdr  │ HTTP request header  │ Carries JWT token to server │
+  │  CORS               │ Program.cs           │ Allows cross-port requests  │
+  │  UseAuthentication()│ Program.cs pipeline  │ Reads & validates JWT       │
+  │  UseAuthorization() │ Program.cs pipeline  │ Checks [Authorize] rules    │
+  │  [Authorize]        │ Controller attribute │ Requires login              │
+  │  [Authorize(Roles)] │ Controller attribute │ Requires specific role      │
+  │  Controller         │ Controllers/*.cs     │ Handles the request logic   │
+  │  DbContext          │ EF Core              │ Talks to SQL Server         │
+  │  SQL Server         │ Database             │ Stores all data             │
+  │  JSON               │ HTTP body            │ Data format both sides use  │
+  │  HTTP Status Code   │ HTTP response        │ Tells if request succeeded  │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  THE GOLDEN RULE:
+  ─────────────────
+  React NEVER touches the database directly.
+  React ONLY talks to the ASP.NET Core API over HTTP.
+  ASP.NET Core is the ONLY thing that touches the database.
+  Everything flows through HTTP requests and JSON responses.
+
+  REQUEST LIFECYCLE IN ONE LINE:
+  ─────────────────────────────────────────────────────────────────────────
+  [User Action] → [Component] → [TanStack Query] → [api.ts] → [fetch()]
+  → [HTTP over network] → [ASP.NET Middleware] → [Controller] → [EF Core]
+  → [SQL Server] → [EF Core] → [Controller returns JSON] → [HTTP response]
+  → [fetch()] → [api.ts parses JSON] → [TanStack Query caches data]
+  → [React re-renders] → [User sees result]
+  ─────────────────────────────────────────────────────────────────────────
+
+================================================================================
+  END OF GUIDE
+================================================================================
