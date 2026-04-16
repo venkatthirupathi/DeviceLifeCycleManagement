@@ -361,3 +361,12 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Claude Code config (AI tool - not for sharing)
+.claude/
+# Tool config
+.claude/
+*.claude
+AUTH_IMPLEMENTATION_GUIDE.txt
+DEMO_QA_GUIDE.txt
+REACT_BACKEND_COMMUNICATION_GUIDE.txt
