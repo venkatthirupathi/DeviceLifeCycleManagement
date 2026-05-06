@@ -91,7 +91,7 @@ public class ChangeLogsController : ControllerBase
             .Select(c => new ChangeLogEntryWithDeviceDto(
                 c.Id,
                 c.DeviceId,
-                c.Device.SerialNumber,
+                c.SerialNumber ?? (c.Device != null ? c.Device.SerialNumber : "Unknown"),
                 c.Action,
                 c.CreatedAt))
             .ToListAsync();
@@ -110,7 +110,7 @@ public record ChangeLogEntryDto(int Id, string Action, DateTime CreatedAt);
 /// <summary>A single audit log entry with device identifiers, for cross-device queries.</summary>
 public record ChangeLogEntryWithDeviceDto(
     int Id,
-    int DeviceId,
+    int? DeviceId,
     string SerialNumber,
     string Action,
     DateTime CreatedAt);

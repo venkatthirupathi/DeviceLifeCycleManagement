@@ -39,6 +39,13 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
     })
 
     if (res.status === 401) {
+      // If this IS the login request, extract the error message and throw it
+      // so the login form can display it — don't redirect
+      if (endpoint.includes('/auth/login')) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.message ?? 'Invalid email or password.')
+      }
+      // For all other 401s (expired session), redirect to login
       localStorage.removeItem('dc-token')
       localStorage.removeItem('dc-user')
       window.location.href = '/login'
@@ -320,7 +327,7 @@ export interface ChangeLogEntryDto { id: number; action: string; createdAt: stri
 
 export interface ChangeLogEntryWithDeviceDto {
   id: number
-  deviceId: number
+  deviceId: number | null
   serialNumber: string
   action: string
   createdAt: string

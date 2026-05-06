@@ -97,8 +97,11 @@ public class AuthController : ControllerBase
             return BadRequest(ModelState);
 
         var user = await _userManager.FindByEmailAsync(request.Email);
-        if (user is null || !await _userManager.CheckPasswordAsync(user, request.Password))
-            return Unauthorized(new { message = "Invalid email or password." });
+        if (user is null)
+            return Unauthorized(new { message = "This email is not registered. Please register first." });
+
+        if (!await _userManager.CheckPasswordAsync(user, request.Password))
+            return Unauthorized(new { message = "Incorrect password. Please try again." });
 
         var roles = await _userManager.GetRolesAsync(user);
         var role = roles.FirstOrDefault() ?? "User";

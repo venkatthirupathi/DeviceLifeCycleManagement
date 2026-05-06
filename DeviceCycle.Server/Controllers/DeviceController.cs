@@ -207,8 +207,23 @@ public class DevicesController : ControllerBase
         if (device is null)
             return NotFound(new { message = $"Device with id {id} not found." });
 
+        var serialNumber = device.SerialNumber;
+        var model = device.Model ?? "N/A";
+        var now = DateTime.UtcNow;
+
+        // Remove old logs and device
         _context.ChangeLogs.RemoveRange(device.ChangeLogs);
         _context.Devices.Remove(device);
+        await _context.SaveChangesAsync();
+
+        // Add deletion log (DeviceId is null since device is gone, SerialNumber preserves identity)
+        _context.ChangeLogs.Add(new ChangeLog
+        {
+            DeviceId = null,
+            SerialNumber = serialNumber,
+            Action = $"DELETED: {serialNumber} (Model: {model})",
+            CreatedAt = now
+        });
         await _context.SaveChangesAsync();
 
         return NoContent();

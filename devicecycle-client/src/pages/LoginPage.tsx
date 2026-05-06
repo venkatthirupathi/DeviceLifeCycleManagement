@@ -13,13 +13,32 @@ export default function LoginPage() {
   const { theme, toggleTheme } = useTheme()
   const navigate           = useNavigate()
 
-  const [mode, setMode]       = useState<Mode>('login')
-  const [email, setEmail]     = useState('')
-  const [password, setPwd]    = useState('')
-  const [fullName, setName]   = useState('')
-  const [adminCode, setCode]  = useState('')
-  const [showPwd, setShowPwd] = useState(false)
-  const [apiError, setApiErr] = useState('')
+  const [mode, setMode]         = useState<Mode>('login')
+  const [email, setEmail]       = useState('')
+  const [password, setPwd]      = useState('')
+  const [fullName, setName]     = useState('')
+  const [adminCode, setCode]    = useState('')
+  const [showPwd, setShowPwd]   = useState(false)
+  const [apiError, setApiErr]   = useState('')
+  const [emailError, setEmailErr]   = useState('')
+  const [pwdError, setPwdErr]       = useState('')
+
+  function validateEmail(val: string) {
+    if (!val) return 'Email is required.'
+    if (!val.includes('@') || !val.toLowerCase().includes('.com'))
+      return 'Enter a valid email id (must contain @ and .com).'
+    return ''
+  }
+
+  function validatePassword(val: string) {
+    if (!val) return 'Password is required.'
+    if (val.length < 6) return 'Your password is too weak — minimum 6 characters.'
+    if (mode !== 'login') {
+      if (!/[A-Z]/.test(val)) return 'Your password is weak — add at least one uppercase letter.'
+      if (!/[0-9]/.test(val)) return 'Your password is weak — add at least one number.'
+    }
+    return ''
+  }
 
   const loginMutation = useMutation({
     mutationFn: () => loginUser({ email, password }),
@@ -49,6 +68,11 @@ export default function LoginPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setApiErr('')
+    const eErr = validateEmail(email)
+    const pErr = validatePassword(password)
+    setEmailErr(eErr)
+    setPwdErr(pErr)
+    if (eErr || pErr) return
     if (mode === 'login') loginMutation.mutate()
     else registerMutation.mutate()
   }
@@ -80,7 +104,7 @@ export default function LoginPage() {
             {(['login', 'register', 'register-admin'] as Mode[]).map(m => (
               <button
                 key={m}
-                onClick={() => { setMode(m); setApiErr('') }}
+                onClick={() => { setMode(m); setApiErr(''); setEmailErr(''); setPwdErr('') }}
                 className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
                   mode === m
                     ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
@@ -112,14 +136,19 @@ export default function LoginPage() {
             <div className="space-y-1.5">
               <label className="form-label">Email</label>
               <input
-                type="email"
+                type="text"
                 value={email}
-                onChange={e => setEmail(e.target.value)}
+                onChange={e => { setEmail(e.target.value); setEmailErr('') }}
                 placeholder="you@example.com"
-                required
                 autoComplete="email"
-                className="input"
+                className={`input ${emailError ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : ''}`}
               />
+              {emailError && (
+                <p className="flex items-center gap-1.5 text-xs text-red-500">
+                  <AlertCircle size={12} className="flex-shrink-0" />
+                  {emailError}
+                </p>
+              )}
             </div>
 
             {/* Password */}
@@ -129,11 +158,10 @@ export default function LoginPage() {
                 <input
                   type={showPwd ? 'text' : 'password'}
                   value={password}
-                  onChange={e => setPwd(e.target.value)}
+                  onChange={e => { setPwd(e.target.value); setPwdErr('') }}
                   placeholder={mode === 'login' ? '••••••••' : 'Min. 6 characters'}
-                  required
                   autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                  className="input pr-10"
+                  className={`input pr-10 ${pwdError ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : ''}`}
                 />
                 <button
                   type="button"
@@ -143,6 +171,12 @@ export default function LoginPage() {
                   {showPwd ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
+              {pwdError && (
+                <p className="flex items-center gap-1.5 text-xs text-amber-500">
+                  <AlertCircle size={12} className="flex-shrink-0" />
+                  {pwdError}
+                </p>
+              )}
             </div>
 
             {/* Admin Code (admin register only) */}
@@ -164,7 +198,8 @@ export default function LoginPage() {
 
             {/* API Error / Warning */}
             {apiError && (() => {
-              const isPasswordWeak = /password|digit|uppercase|lowercase|character|length/i.test(apiError)
+              const isNotRegistered = apiError.toLowerCase().includes('not registered')
+              const isPasswordWeak  = /password|digit|uppercase|lowercase|character|length/i.test(apiError)
               return (
                 <div className={`flex items-start gap-2 p-3 rounded-lg border ${
                   isPasswordWeak
@@ -172,9 +207,20 @@ export default function LoginPage() {
                     : 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800/50'
                 }`}>
                   <AlertCircle size={14} className={`mt-0.5 flex-shrink-0 ${isPasswordWeak ? 'text-amber-500' : 'text-red-500'}`} />
-                  <p className={`text-xs ${isPasswordWeak ? 'text-amber-700 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
-                    {isPasswordWeak ? '🔒 Password is not strong enough: ' : ''}{apiError}
-                  </p>
+                  <div className="flex-1">
+                    <p className={`text-xs ${isPasswordWeak ? 'text-amber-700 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {isPasswordWeak ? '🔒 Password is not strong enough: ' : ''}{apiError}
+                    </p>
+                    {isNotRegistered && (
+                      <button
+                        type="button"
+                        onClick={() => { setMode('register'); setApiErr(''); setEmailErr(''); setPwdErr('') }}
+                        className="mt-1.5 text-xs font-semibold text-brand-500 hover:text-brand-600 underline underline-offset-2"
+                      >
+                        Click here to register →
+                      </button>
+                    )}
+                  </div>
                 </div>
               )
             })()}

@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace DeviceCycle.Server.Migrations
 {
     [DbContext(typeof(DeviceRegistrationLifecycleContext))]
-    [Migration("20260410055226_AddIdentityTables")]
-    partial class AddIdentityTables
+    [Migration("20260505121037_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -97,122 +97,102 @@ namespace DeviceCycle.Server.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasColumnName("id");
+                        .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Action")
                         .IsRequired()
                         .HasMaxLength(255)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(255)")
-                        .HasColumnName("action");
+                        .HasColumnType("nvarchar(255)");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
-                        .HasColumnName("created_at")
                         .HasDefaultValueSql("(sysdatetime())");
 
-                    b.Property<int>("DeviceId")
-                        .HasColumnType("int")
-                        .HasColumnName("device_id");
+                    b.Property<int?>("DeviceId")
+                        .HasColumnType("int");
 
-                    b.HasKey("Id")
-                        .HasName("PK__change_l__3213E83FFAD2543B");
+                    b.Property<string>("SerialNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
 
                     b.HasIndex("DeviceId");
 
-                    b.ToTable("change_logs", (string)null);
+                    b.ToTable("ChangeLogs");
                 });
 
             modelBuilder.Entity("DeviceCycle.Server.Models.Device", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasColumnName("id");
+                        .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
-                        .HasColumnName("created_at")
                         .HasDefaultValueSql("(sysdatetime())");
 
                     b.Property<string>("FirmwareVersion")
                         .HasMaxLength(50)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(50)")
-                        .HasColumnName("firmware_version");
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("Model")
                         .HasMaxLength(100)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(100)")
-                        .HasColumnName("model");
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("SerialNumber")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(100)")
-                        .HasColumnName("serial_number");
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(20)")
-                        .HasColumnName("status");
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
-                        .HasColumnName("updated_at")
                         .HasDefaultValueSql("(sysdatetime())");
 
-                    b.HasKey("Id")
-                        .HasName("PK__devices__3213E83F88ADB518");
+                    b.HasKey("Id");
 
-                    b.HasIndex(new[] { "SerialNumber" }, "UQ__devices__BED14FEEB2C13C5C")
+                    b.HasIndex("SerialNumber")
                         .IsUnique();
 
-                    b.ToTable("devices", (string)null);
+                    b.ToTable("Devices");
                 });
 
             modelBuilder.Entity("DeviceCycle.Server.Models.FirmwareVersion", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasColumnName("id");
+                        .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Notes")
-                        .HasColumnType("text")
-                        .HasColumnName("notes");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime>("ReleasedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
-                        .HasColumnName("released_at")
                         .HasDefaultValueSql("(sysdatetime())");
 
                     b.Property<string>("Version")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(50)")
-                        .HasColumnName("version");
+                        .HasColumnType("nvarchar(50)");
 
-                    b.HasKey("Id")
-                        .HasName("PK__Firmware__3213E83F058A131F");
+                    b.HasKey("Id");
 
-                    b.HasIndex(new[] { "Version" }, "UQ__Firmware__79B5C94DFE2005EA")
+                    b.HasIndex("Version")
                         .IsUnique();
 
                     b.ToTable("FirmwareVersions");
@@ -356,9 +336,7 @@ namespace DeviceCycle.Server.Migrations
                     b.HasOne("DeviceCycle.Server.Models.Device", "Device")
                         .WithMany("ChangeLogs")
                         .HasForeignKey("DeviceId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_change_logs_devices");
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Device");
                 });

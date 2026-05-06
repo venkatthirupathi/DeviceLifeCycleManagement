@@ -104,14 +104,20 @@ builder.Services.AddAuthorization();
 var app = builder.Build();
 
 // ── Seed Roles ────────────────────────────────────────────────────────────────
-using (var scope = app.Services.CreateScope())
+try
 {
+    using var scope = app.Services.CreateScope();
     var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
     foreach (var role in new[] { "Admin", "User" })
     {
         if (!await roleManager.RoleExistsAsync(role))
             await roleManager.CreateAsync(new IdentityRole(role));
     }
+}
+catch (Exception ex)
+{
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    logger.LogError(ex, "Role seeding failed — server will still start");
 }
 
 app.UseDefaultFiles();

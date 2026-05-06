@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Sun, Moon, Bell, Search, X, CheckCheck } from 'lucide-react'
+import { Sun, Moon, Bell, X, CheckCheck } from 'lucide-react'
 import { useTheme } from '../../context/ThemeContext'
 import { useAuth } from '../../context/AuthContext'
 import { useQuery } from '@tanstack/react-query'
@@ -56,27 +56,7 @@ export default function Header() {
   }
 
   return (
-    <header className="h-[60px] flex items-center justify-between px-6 bg-white dark:bg-[#0f0f1a] border-b border-gray-200 dark:border-gray-800/60 flex-shrink-0 gap-4">
-
-      {/* Search */}
-      <div className="relative flex-1 max-w-xs">
-        <Search
-          size={14}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-600 pointer-events-none"
-        />
-        <input
-          type="search"
-          placeholder="Quick search…"
-          className="w-full pl-9 pr-3 py-2 text-sm rounded-lg
-                     bg-gray-100 dark:bg-gray-800/60
-                     border border-transparent
-                     text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600
-                     focus:outline-none focus:bg-white dark:focus:bg-gray-900
-                     focus:border-brand-500 dark:focus:border-brand-500
-                     focus:ring-2 focus:ring-brand-500/20
-                     transition-all duration-150"
-        />
-      </div>
+    <header className="h-[60px] flex items-center justify-end px-6 bg-white dark:bg-[#0f0f1a] border-b border-gray-200 dark:border-gray-800/60 flex-shrink-0 gap-4">
 
       {/* Right actions */}
       <div className="flex items-center gap-1">
